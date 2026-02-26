@@ -1,0 +1,76 @@
+# Workflow name
+name: S3 Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_DEFAULT_REGION: us-east-1
+      BUCKET_NAME: aws-svelte-demo-0a94721def71
+    steps:
+      - name: Install aws cli
+        id: install-aws-cli
+        uses: unfor19/install-aws-cli-action@v1
+        with:
+          version: 2
+          verbose: false
+          arch: amd64
+          rootdir: ''
+          workdir: ''
+
+      - name: Configure aws credentials
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
+        with:
+          role-to-assume: arn:aws:iam::056830365309:role/GitHubAction-AssumeRoleWithAction
+          role-session-name: aws-svelte-demo-main-workflow
+          aws-region: ${{env.AWS_DEFAULT_REGION}}
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: npm i
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload files to S3
+        run: aws s3 sync build/ s3://${{ env.BUCKET_NAME }}/ --exact-timestamps --delete
+
+  create-cloudfront-invalidation:
+    needs: build-and-deploy
+    runs-on: ubuntu-latest
+    env:
+      AWS_DEFAULT_REGION: us-east-1
+      CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+    steps:
+      - name: Install aws cli
+        id: install-aws-cli
+        uses: unfor19/install-aws-cli-action@v1
+        with:
+          version: 2
+          verbose: false
+          arch: amd64
+          rootdir: ''
+          workdir: ''
+
+      - name: Configure aws credentials
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
+        with:
+          role-to-assume: arn:aws:iam::056830365309:role/GitHubAction-AssumeRoleWithAction
+          role-session-name: aws-svelte-demo-main-workflow
+          aws-region: ${{env.AWS_DEFAULT_REGION}}
+
+      - name: Invalidate clodufront distribution
+        run: aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
